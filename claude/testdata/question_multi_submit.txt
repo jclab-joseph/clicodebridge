@@ -1,0 +1,17 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Fruit  ✔ Submit  →
+
+Which fruits?
+
+  1. [ ] Apple
+         Select apple
+  2. [✔] Banana
+         Select banana
+  3. [ ] Cherry
+         Select cherry
+  4. [ ] Type something
+❯    Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · ctrl+g to edit in VS Code · Esc to cancel

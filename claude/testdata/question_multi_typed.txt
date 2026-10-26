@@ -1,0 +1,17 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Pets  ✔ Submit  →
+
+Which pets?
+
+  1. [✔] Cat
+         Select cat
+  2. [ ] Dog
+         Select dog
+  3. [✔] Fish
+         Select fish
+❯ 4. [✔] Hamster
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · ctrl+g to edit in VS Code · Esc to cancel

@@ -1,0 +1,10 @@
+› Before planning, use the request_user_input tool to ask me one question: which language, options Go or Rust.
+
+  Question 1/1 (1 unanswered)
+  Which language should the plan use?
+
+  › 1. Go (Recommended)   Use Go for the implementation plan.
+    2. Rust               Use Rust for the implementation plan.
+    3. None of the above  Optionally, add details in notes (tab)
+
+  tab to add notes | enter to submit answer | esc to interrupt

@@ -1,0 +1,19 @@
+› Run this exact shell command to create a file: echo hello > out.txt
+
+• I’ll run the command in the current workspace.
+
+• Running echo hello > out.txt
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Do you want to allow the requested command to create out.txt in the workspace?
+
+  $ echo hello > out.txt
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `echo hello > out.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel
