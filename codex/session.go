@@ -431,6 +431,8 @@ func (s *session) observe(t *terminal.Terminal, info screenInfo) {
 	turn := s.turnActive
 	s.mu.Unlock()
 	switch {
+	case !ready && !s.HasPending():
+		s.SetState(bridge.StateStarting) // startup dialogs answered automatically
 	case s.HasPending() || info.dialogVisible():
 		s.SetState(bridge.StateWaiting)
 	case !ready:

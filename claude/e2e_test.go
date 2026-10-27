@@ -12,6 +12,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -281,4 +284,57 @@ func TestE2EScreenReader(t *testing.T) {
 
 func TestE2EScreenReaderBridge(t *testing.T) {
 	terminalScenario(t, e2eDir(t, "ax-bridge"), &Options{Interaction: InteractionTerminal, TrustWorkspace: true, ScreenReader: true})
+}
+
+// TestE2EAttachments: an image a tool returned arrives inline on the tool
+// result, and files the model sends arrive as EventFiles. Remote Control is
+// off, so the bridge mod's send_file is the only way to send.
+func TestE2EAttachments(t *testing.T) {
+	dir := e2eDir(t, "attach")
+	// A real picture (a 1x1 image is refused by the image reader): red.
+	img := image.NewRGBA(image.Rect(0, 0, 64, 48))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+3] = 220, 255
+	}
+	var buf bytes.Buffer
+	png.Encode(&buf, img)
+	os.WriteFile(filepath.Join(dir, "pixel.png"), buf.Bytes(), 0o644)
+	os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# Notes\n\nhello\n"), 0o644)
+
+	s, log := startE2E(t, dir, &Options{TrustWorkspace: true, RemoteControl: Bool(false)})
+	waitIdle(t, s, log)
+	waitBridge(t, log)
+	// Absolute paths: a model left to search may run an unbounded `find /`.
+	send(t, s, fmt.Sprintf(`Read the image %s and say its color in one word. Then send %s and %s to me with caption "two files".`,
+		filepath.Join(dir, "pixel.png"), filepath.Join(dir, "pixel.png"), filepath.Join(dir, "notes.md")))
+	var inline, sent []bridge.Attachment
+	var caption string
+	log.wait(120*time.Second, "turn end", func(ev bridge.Event) bool {
+		switch ev.Type {
+		case bridge.EventRequest:
+			respond(t, s, ev.Request.ID, bridge.Allow())
+		case bridge.EventToolResult:
+			inline = append(inline, ev.Attachments...)
+		case bridge.EventFiles:
+			sent, caption = append(sent, ev.Attachments...), ev.Text
+		}
+		return ev.Type == bridge.EventTurnCompleted
+	})
+	if len(inline) == 0 || inline[0].Kind() != bridge.KindImage || len(inline[0].Data) == 0 {
+		t.Fatalf("no inline image from Read: %+v", inline)
+	}
+	if len(sent) != 2 || caption != "two files" {
+		t.Fatalf("sent files = %+v caption %q", sent, caption)
+	}
+	for _, a := range sent {
+		r, err := a.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(r)
+		r.Close()
+		if !a.Sent || len(b) == 0 || int64(len(b)) != a.Size {
+			t.Fatalf("attachment %+v read %d bytes", a, len(b))
+		}
+	}
 }

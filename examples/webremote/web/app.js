@@ -214,6 +214,11 @@ function renderMarkdown(text) {
     }
     for (const para of part.split(/\n{2,}/)) {
       if (!para.trim()) continue;
+      const heading = /^(#{1,6})\s+(.*)$/.exec(para.trim());
+      if (heading && !para.trim().includes("\n")) {
+        frag.append(el("p", { class: `md-h md-h${heading[1].length}` }, el("strong", { text: heading[2] })));
+        continue;
+      }
       const p = el("p");
       for (const tok of para.split(/(`[^`]+`|\*\*[^*]+\*\*)/)) {
         if (tok.startsWith("`") && tok.endsWith("`") && tok.length > 2) p.append(el("code", { text: tok.slice(1, -1) }));
@@ -224,6 +229,69 @@ function renderMarkdown(text) {
     }
   });
   return frag;
+}
+
+// ---- attachments ---------------------------------------------------------------
+
+function fileURL(a, download) {
+  return `api/sessions/${app.current.key}/file?id=${encodeURIComponent(a.id)}${download ? "&download=1" : ""}`;
+}
+
+function fmtSize(n) {
+  if (!n) return "";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) (n /= 1024), i++;
+  return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
+}
+
+function attachKind(a) {
+  const t = a.mediaType || "";
+  if (t.startsWith("image/")) return "image";
+  if (t.startsWith("video/")) return "video";
+  if (t.startsWith("audio/")) return "audio";
+  if (t === "application/pdf") return "pdf";
+  if (t.startsWith("text/") || t === "application/json") return "text";
+  return "file";
+}
+
+const TEXT_PREVIEW_MAX = 256 * 1024;
+
+// renderAttachment draws one file: inline media, a text preview, or a link.
+function renderAttachment(a, { compact = false } = {}) {
+  const url = fileURL(a);
+  const kind = attachKind(a);
+  const head = el("div", { class: "file-head" },
+    el("span", { class: "file-name", text: a.name, title: a.path || a.name }),
+    el("span", { class: "file-meta", text: [a.mediaType, fmtSize(a.size)].filter(Boolean).join(" · ") }),
+    el("a", { href: fileURL(a, true), text: "Download" }));
+  if (compact && kind === "image") {
+    return el("a", { class: "thumb", href: url, target: "_blank", rel: "noopener" }, el("img", { src: url, alt: a.name, loading: "lazy" }));
+  }
+  const card = el("div", { class: `file-card ${kind}` }, head);
+  switch (kind) {
+    case "image":
+      card.append(el("a", { href: url, target: "_blank", rel: "noopener" }, el("img", { src: url, alt: a.name, loading: "lazy" })));
+      break;
+    case "video":
+      card.append(el("video", { src: url, controls: true, preload: "metadata" }));
+      break;
+    case "audio":
+      card.append(el("audio", { src: url, controls: true, preload: "metadata" }));
+      break;
+    case "pdf":
+      card.append(el("a", { class: "open", href: url, target: "_blank", rel: "noopener", text: "Open PDF" }));
+      break;
+    case "text":
+      if (a.size && a.size > TEXT_PREVIEW_MAX) break;
+      const body = el("div", { class: "file-text" }, el("span", { class: "notice", text: "Loading…" }));
+      card.append(body);
+      fetch(url).then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.statusText)))).then((text) => {
+        body.replaceChildren(/markdown/.test(a.mediaType) ? el("div", { class: "msg assistant" }, renderMarkdown(text)) : el("pre", { text }));
+      }).catch((e) => body.replaceChildren(el("span", { class: "notice error", text: `Preview unavailable: ${e.message}` })));
+      break;
+  }
+  return card;
 }
 
 function toolSummary(tool) {
@@ -238,8 +306,16 @@ function handleEvent(ev) {
   const c = app.current;
   if (!c) return;
   switch (ev.type) {
-    case "user_message":
-      append(el("div", { class: "msg user" + (ev.kind === "command" ? " command" : ""), text: ev.text }));
+    case "user_message": {
+      const msg = el("div", { class: "msg user" + (ev.kind === "command" ? " command" : "") }, ev.text || "");
+      if (ev.attachments?.length) msg.append(el("div", { class: "thumbs" }, ...ev.attachments.map((a) => renderAttachment(a, { compact: true }))));
+      append(msg);
+      break;
+    }
+    case "files":
+      append(el("div", { class: "files" },
+        el("div", { class: "files-caption", text: ev.text || `Sent ${ev.attachments.length} file${ev.attachments.length > 1 ? "s" : ""}` }),
+        ...ev.attachments.map((a) => renderAttachment(a))));
       break;
     case "assistant_text":
       append(el("div", { class: "msg assistant" }, renderMarkdown(ev.text)));
@@ -266,6 +342,8 @@ function handleEvent(ev) {
       } else {
         append(el("details", { class: "tool" + (t.isError ? " error" : "") }, el("summary", {}, el("b", { text: "result" })), el("div", {}, out)));
       }
+      // Images a tool returned (screenshots, a picture it read) stay visible.
+      if (ev.attachments?.length) append(el("div", { class: "thumbs tool-thumbs" }, ...ev.attachments.map((a) => renderAttachment(a, { compact: true }))));
       break;
     }
     case "turn_completed":

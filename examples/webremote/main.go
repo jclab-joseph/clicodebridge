@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"embed"
@@ -17,8 +18,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -62,6 +65,7 @@ func main() {
 	mux.HandleFunc("POST /api/sessions/{key}/command", hub.withEntry(hub.handleCommand))
 	mux.HandleFunc("POST /api/sessions/{key}/settings", hub.withEntry(hub.handleSettings))
 	mux.HandleFunc("GET /api/sessions/{key}/terminal", hub.withEntry(hub.handleTerminal))
+	mux.HandleFunc("GET /api/sessions/{key}/file", hub.withEntry(hub.handleFile))
 	mux.HandleFunc("POST /api/sessions/{key}/terminal", hub.withEntry(hub.handleTerminalInput))
 
 	srv := &http.Server{Addr: *addr, Handler: auth(*token, mux)}
@@ -399,6 +403,45 @@ func (h *hub) handleTerminal(w http.ResponseWriter, r *http.Request, e *entry) {
 		case <-time.After(300 * time.Millisecond): // relaunched, or we fell behind
 		}
 	}
+}
+
+// handleFile serves one attachment the session's events named (?id=…),
+// inline unless ?download=1. Range requests work, so videos can seek.
+func (h *hub) handleFile(w http.ResponseWriter, r *http.Request, e *entry) {
+	a, ok := e.file(r.URL.Query().Get("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var content io.ReadSeeker
+	modTime := e.created
+	if a.Data != nil {
+		content = bytes.NewReader(a.Data)
+	} else {
+		f, err := os.Open(a.Path)
+		if err != nil {
+			http.Error(w, "the file is no longer available", http.StatusGone)
+			return
+		}
+		defer f.Close()
+		fi, err := f.Stat()
+		if err != nil || !fi.Mode().IsRegular() {
+			http.Error(w, "not a regular file", http.StatusGone)
+			return
+		}
+		content, modTime = f, fi.ModTime()
+	}
+	disposition := "inline"
+	if r.URL.Query().Get("download") == "1" {
+		disposition = "attachment"
+	}
+	w.Header().Set("Content-Type", a.MediaType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": a.Name}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// The agent chose these files: an HTML or SVG one must not run script
+	// with this page's origin, which controls the sessions.
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'")
+	http.ServeContent(w, r, a.Name, modTime, content)
 }
 
 func (h *hub) handleTerminalInput(w http.ResponseWriter, r *http.Request, e *entry) {

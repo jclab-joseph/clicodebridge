@@ -1,0 +1,40 @@
+  54
+  55
+  56
+  57
+  58
+  59
+  60
+  61
+  62
+  63
+  64
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Run this exact shell command with the Bash tool: echo cap > cap.txt
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Worked for 1s · done 5:56 PM
+
+❯ Use the AskUserQuestion tool once with exactly two questions: (1) header "Color", question "Which color?", single
+  select, options Red, Green, Blue. (2) header "Pets", question "Which pets?", multiSelect true, options Cat, Dog,
+  Fish.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☐ Pets  ✔ Submit  →
+
+Which pets?
+
+❯ 1. [ ] Cat
+         Select Cat
+  2. [ ] Dog
+         Select Dog
+  3. [ ] Fish
+         Select Fish
+  4. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

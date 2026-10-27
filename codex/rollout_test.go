@@ -3,6 +3,7 @@ package codex
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 // Lines shaped like codex-cli 0.164.0 rollouts (content shortened).
 const (
-	lineMeta      = `{"timestamp":"2026-10-25T13:44:46Z","type":"session_meta","payload":{"id":"01a1734d-e93f-79b3-b865-7fe3e94f36b9","cwd":"/work","originator":"codex-tui","source":"cli"}}`
+	lineMeta      = `{"timestamp":"2026-10-25T13:44:46Z","type":"session_meta","payload":{"id":"01a1734d-e93f-79b3-b865-7fe3e94f36b9","timestamp":"TS","cwd":"/work","originator":"codex-tui","source":"cli"}}`
 	lineStarted   = `{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}`
 	lineCtx       = `{"type":"turn_context","payload":{"turn_id":"t1","model":"gpt-6-sol","effort":"low","approval_policy":"on-request","sandbox_policy":{"type":"read-only"},"collaboration_mode":{"mode":"default"}}}`
 	lineEnv       = `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/work</cwd>\n</environment_context>"}]}}`
@@ -69,7 +70,7 @@ func TestFindRollouts(t *testing.T) {
 	dir := filepath.Join(home, "sessions", start.Format("2006"), start.Format("01"), start.Format("02"))
 	os.MkdirAll(dir, 0o755)
 	path := filepath.Join(dir, "rollout-2026-10-25T22-44-08-01a1734d-e93f-79b3-b865-7fe3e94f36b9.jsonl")
-	os.WriteFile(path, []byte(lineMeta+"\n"), 0o644)
+	os.WriteFile(path, []byte(strings.Replace(lineMeta, "TS", start.UTC().Format(time.RFC3339Nano), 1)+"\n"), 0o644)
 
 	got, meta, ok := findNewRollout(home, "/work", start, func(string) bool { return false })
 	if !ok || got != path || meta.ID != "01a1734d-e93f-79b3-b865-7fe3e94f36b9" {
@@ -83,5 +84,24 @@ func TestFindRollouts(t *testing.T) {
 	}
 	if got := findRolloutByID(home, meta.ID); got != path {
 		t.Fatalf("by id: %q", got)
+	}
+	// A previous session's file, still being written, is not ours.
+	os.WriteFile(path, []byte(strings.Replace(lineMeta, "TS", start.Add(-time.Minute).UTC().Format(time.RFC3339Nano), 1)+"\n"), 0o644)
+	if _, _, ok := findNewRollout(home, "/work", start, func(string) bool { return false }); ok {
+		t.Fatal("matched an older session's rollout")
+	}
+}
+
+func TestRolloutImages(t *testing.T) {
+	const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg=="
+	user := `{"type":"response_item","payload":{"type":"message","id":"m1","role":"user","content":[{"type":"input_text","text":"what is this"},{"type":"input_text","text":"<image>"},{"type":"input_image","image_url":"data:image/png;base64,` + png + `","detail":"high"}]}}`
+	p := parseLine([]byte(user))
+	if len(p.events) != 1 || len(p.events[0].Attachments) != 1 || p.events[0].Attachments[0].MediaType != "image/png" || p.events[0].Attachments[0].ID != "msg:m1:2" {
+		t.Fatalf("user image: %+v", p.events)
+	}
+	out := `{"type":"response_item","payload":{"type":"function_call_output","call_id":"c7","output":[{"type":"input_image","image_url":"data:image/png;base64,` + png + `"}]}}`
+	p = parseLine([]byte(out))
+	if len(p.events) != 1 || len(p.events[0].Attachments) != 1 || len(p.events[0].Attachments[0].Data) == 0 {
+		t.Fatalf("tool image: %+v", p.events)
 	}
 }

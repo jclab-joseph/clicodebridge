@@ -95,9 +95,11 @@ func (screenReaderProfile) analyze(in screenInput) screenInfo {
 	if !ok || s.InputBox {
 		return s
 	}
+	// The question header: a tab bar of checkbox glyphs (2.1.310) or a
+	// "Questions: …" row (2.1.311). Layout identifies questions without it.
 	bar := -1
 	for i := 0; i < ins.line; i++ {
-		if isTabBar(lines[i]) {
+		if isTabBar(lines[i]) || strings.HasPrefix(strings.TrimSpace(lines[i]), "Questions:") {
 			bar = i
 		}
 	}
@@ -109,7 +111,7 @@ func (screenReaderProfile) analyze(in screenInput) screenInfo {
 	case ins.yesNo:
 		rows := axYesNoRows(lines, ins.line)
 		switch {
-		case bar >= 0:
+		case bar >= 0 || axHasSummary(lines, ins.line):
 			s.Review = &reviewDialog{Submit: "y"}
 		case trustRow(rows) >= 0 && (h.expectTrust || !h.registryKnown):
 			s.Trust = &trustDialog{Rows: rows, Focused: -1, Yes: trustRow(rows)}
@@ -117,7 +119,7 @@ func (screenReaderProfile) analyze(in screenInput) screenInfo {
 			s.Other = true
 		}
 	default:
-		question := bar >= 0 || (h.registryKnown && h.waitingFor == waitingInput)
+		question := bar >= 0 || (h.registryKnown && h.waitingFor == waitingInput) || axQuestionLayout(lines, ins)
 		if question {
 			s.Question = axQuestion(lines, bar, ins, h)
 		}
@@ -134,6 +136,32 @@ func (screenReaderProfile) analyze(in screenInput) screenInfo {
 		}
 	}
 	return s
+}
+
+// axQuestionLayout reports a question dialog by layout: the first option
+// sits right under the "> question" row. A permission dialog puts its
+// prompt ("Do you want to proceed?") there instead.
+func axQuestionLayout(lines []string, ins axInstruction) bool {
+	opts := axOptions(lines, ins)
+	if len(opts) == 0 {
+		return false
+	}
+	for i := opts[0].line - 1; i >= 0; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			return strings.HasPrefix(t, ">")
+		}
+	}
+	return false
+}
+
+// axHasSummary reports the answer summary of a review step ("→ answer" rows).
+func axHasSummary(lines []string, instr int) bool {
+	for i := max(0, instr-30); i < instr; i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "→") {
+			return true
+		}
+	}
+	return false
 }
 
 // axOptions reads the numbered rows above the instruction, folding wrapped

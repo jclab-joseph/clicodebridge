@@ -404,6 +404,10 @@ func (s *session) observe(t *terminal.Terminal, info screenInfo) {
 		busy = reg.Status == "busy" || turn
 	}
 	switch {
+	case !ready && !s.HasPending():
+		// Startup dialogs answered automatically (trust) are part of
+		// starting; Send waits through them.
+		s.SetState(bridge.StateStarting)
 	case waiting:
 		s.SetState(bridge.StateWaiting)
 	case !ready:

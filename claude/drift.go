@@ -25,8 +25,8 @@ import (
 // against, per profile. Newer versions run, and report once that they are
 // unverified.
 var VerifiedVersions = map[string][2]string{
-	"classic":       {"2.1.296", "2.1.310"},
-	"screen-reader": {"2.1.310", "2.1.310"},
+	"classic":       {"2.1.296", "2.1.311"},
+	"screen-reader": {"2.1.310", "2.1.311"},
 }
 
 const (
@@ -61,6 +61,10 @@ type driftState struct {
 func (s *session) checkDrift(reg registry, info screenInfo, ready bool) {
 	now := time.Now()
 	s.mu.Lock()
+	if s.closing || s.restarting {
+		s.mu.Unlock()
+		return // exit and relaunch screens are expected to disagree
+	}
 	ds := &s.drift
 	if ds.since == nil {
 		ds.since, ds.reported = map[string]time.Time{}, map[string]bool{}

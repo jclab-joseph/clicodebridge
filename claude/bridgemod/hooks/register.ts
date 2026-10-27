@@ -8,6 +8,12 @@
 //   POST <url>/mod.ack     the outcome of one command
 //   POST <url>/mod.event   turn boundaries (turn.complete also reports aborts,
 //                          which the Stop settings hook does not)
+//   POST <url>/mod.files   files the model sent with the send_file tool
+//
+// send_file (listed as mcp__clicodebridge__send_file) lets the model hand
+// files to the library's client. Claude's own SendUserFile only exists while
+// Remote Control is on, and uploads the file to claude.ai; this one stays
+// local.
 //
 // Commands: {id, op: "submit", text} and {id, op: "abort"}.
 // The function hooks API is early access; the library falls back to hooks
@@ -62,6 +68,43 @@ function poll($: any) {
     .catch(() => $.clock.after(1000, () => poll($)))
 }
 
+const SEND_FILE = {
+  name: "send_file",
+  description:
+    "Send files to the user, who watches this session from another app. Use it for any file the user would want to see " +
+    "rather than read about: a generated image or chart, a screenshot, a video, a report, a built artifact. Send " +
+    "deliverables as they are produced; do not send scratch files or every intermediate save. Paths may be absolute " +
+    "or relative to the working directory, and the files must already exist.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      files: { type: "array", items: { type: "string" }, minItems: 1, description: "Paths of the files to send" },
+      caption: { type: "string", description: "Optional one-line context" },
+    },
+    required: ["files"],
+  },
+}
+
+async function sendFiles($: any, e: any) {
+  const cwd = await $.session.cwd()
+  const files: { path: string; size: number }[] = []
+  for (const f of (e.files ?? []) as string[]) {
+    const path = f.startsWith("/") ? f : `${cwd}/${f}`
+    let st: any
+    try {
+      st = await $.fs.stat(path, { resolve: true })
+    } catch {
+      return { deny: `${f}: no such file` }
+    }
+    if (st.kind !== "file") return { deny: `${f}: not a regular file` }
+    files.push({ path: st.realPath ?? path, size: st.size })
+  }
+  if (files.length === 0) return { deny: "no files given" }
+  const res = await post($, "mod.files", { toolUseId: e.tool_use_id ?? "", caption: e.caption ?? "", files })
+  if (!res.ok) return { deny: "the user's client did not accept the files" }
+  return { result: `Sent ${files.length} file(s) to the user.` }
+}
+
 async function hello($: any) {
   const v = await $.session.version()
   await post($, "mod.hello", { protocol: PROTOCOL, version: v.version, sessionId: await $.session.id() })
@@ -72,11 +115,14 @@ export const register = (on: any) => {
     const r = await next(e)
     base = (await $.env.get("CLICODEBRIDGE_MOD_URL")) ?? ""
     if (base) {
+      await $.tool.register(SEND_FILE)
       await hello($)
       poll($)
     }
     return r
   })
+
+  on("tool.call", { tool: "mcp__clicodebridge__send_file" }, ($: any, e: any) => sendFiles($, e))
 
   on("turn.start", async ($: any, e: any, next: any) => {
     const r = await next(e)

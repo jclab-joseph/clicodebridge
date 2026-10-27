@@ -82,11 +82,31 @@ clicodebridge/       Provider, Session, Event, Request, Response (provider-neutr
 | `Close()` | Exit the CLI. The conversation stays on disk; resume with `SessionOptions.Resume`. |
 
 Events: `session_id`, `state`, `user_message`, `assistant_text`, `thinking`,
-`tool_call`, `tool_result`, `turn_started`, `turn_completed`, `request`,
-`request_resolved`, `settings`, `notice`, `restarted`, `diagnostic`, `error`,
-`exited`.
+`tool_call`, `tool_result`, `files`, `turn_started`, `turn_completed`,
+`request`, `request_resolved`, `settings`, `notice`, `restarted`,
+`diagnostic`, `error`, `exited`.
 Prompts typed directly in the TUI or sent via Remote Control show up as
 `user_message`/`turn_started` too.
+
+### Images and files
+
+Events carry `Attachments`:
+
+| Event | Attachments | Content |
+| --- | --- | --- |
+| `tool_result` | images and documents a tool returned (a screenshot, a picture it read) | inline (`Data`) |
+| `user_message` | images attached to the prompt | inline |
+| `files` | files the agent sent to the user on purpose; `Text` is the caption | on disk (`Path`) |
+
+`Attachment.Open()` reads either kind; `Kind()` says `image`, `video`,
+`audio`, `pdf`, `text` or `file`. A sent file is read as it is on disk now.
+
+Claude sends files with `SendUserFile`, which only exists while Remote
+Control is on and uploads to claude.ai. The bridge mod therefore registers
+its own `send_file` tool (`mcp__clicodebridge__send_file`), which works
+without Remote Control and keeps files local. Models find it on their own
+when asked to send something. Codex images (`input_image` in prompts and in
+tool outputs such as `view_image`) arrive the same way.
 
 ### Requests
 
@@ -241,7 +261,11 @@ go run ./examples/webremote -addr 127.0.0.1:8787   # optional: -token secret
 
 Open the page, start a Claude Code or Codex session in a directory, and chat.
 Permission prompts and questions appear as cards (buttons, radio/checkbox
-choices, free-text answers). The model, effort and mode selectors call the
+choices, free-text answers). Files the agent sends appear as cards: images
+inline, video and audio with players, text and Markdown previewed, the rest
+as downloads. Screenshots and images from tool results show as thumbnails.
+The server serves only attachments its sessions' events named, with a
+sandboxing Content-Security-Policy. The model, effort and mode selectors call the
 `Set*` methods. The **Terminal** tab streams the CLI's live screen
 (xterm.js) and forwards your keystrokes. The server uses only the standard
 library (SSE + JSON POST). Sessions run with your user's permissions, so keep
@@ -275,8 +299,8 @@ run in CI yet).
 
 ## Compatibility and caveats
 
-- Verified against Claude Code 2.1.296–2.1.310 (screen-reader profile:
-  2.1.310) and codex-cli 0.164.0 on Linux. The session registry file format
+- Verified against Claude Code 2.1.296–2.1.311 (screen-reader profile:
+  2.1.310–2.1.311) and codex-cli 0.164.0 on Linux. The session registry file format
   and the function hooks API are undocumented or early access. Both have
   fallbacks (`claude agents --json`, then the screen; the keyboard).
 - Remaining screen dependencies on Claude: answering dialogs in

@@ -219,6 +219,32 @@ func (s *session) onModHook(ctx context.Context, event string, body []byte) []by
 			}
 			m.mu.Unlock()
 		}
+	case "mod.files":
+		var f struct {
+			ToolUseID string `json:"toolUseId"`
+			Caption   string `json:"caption"`
+			Files     []struct {
+				Path string `json:"path"`
+				Size int64  `json:"size"`
+			} `json:"files"`
+		}
+		if json.Unmarshal(body, &f) != nil || len(f.Files) == 0 {
+			return nil
+		}
+		ev := bridge.Event{Type: bridge.EventFiles, Text: f.Caption}
+		id := f.ToolUseID
+		if id == "" {
+			id = core.NewID()
+		}
+		for i, file := range f.Files {
+			a := bridge.FileAttachment(fmt.Sprintf("%s:sent:%d", id, i), file.Path, f.Caption)
+			if a.Size == 0 {
+				a.Size = file.Size
+			}
+			ev.Attachments = append(ev.Attachments, a)
+		}
+		s.Emit(ev)
+		return []byte(`{"ok":true}`)
 	case "mod.event":
 		var e modEvent
 		if json.Unmarshal(body, &e) != nil {
