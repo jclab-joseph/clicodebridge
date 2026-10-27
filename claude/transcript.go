@@ -2,8 +2,11 @@ package claude
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -79,6 +82,8 @@ func (t *tailer) poll() ([][]byte, error) {
 // record is the subset of transcript records this package reads.
 type record struct {
 	Type            string          `json:"type"`
+	UUID            string          `json:"uuid"`
+	ToolUseResult   json.RawMessage `json:"toolUseResult"`
 	Subtype         string          `json:"subtype"`
 	IsSidechain     bool            `json:"isSidechain"`
 	IsMeta          bool            `json:"isMeta"`
@@ -103,6 +108,25 @@ type contentBlock struct {
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
 	IsError   bool            `json:"is_error"`
+	Source    *blockSource    `json:"source"`
+}
+
+// blockSource is an image or document block's payload.
+type blockSource struct {
+	Type      string `json:"type"` // "base64" (others carry no inline data)
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
+// sentFiles is the toolUseResult of SendUserFile / SendUserMessage.
+type sentFiles struct {
+	Caption     string `json:"caption"`
+	Message     string `json:"message"`
+	Attachments []struct {
+		Path      string `json:"path"`
+		Size      int64  `json:"size"`
+		MediaType string `json:"media_type"`
+	} `json:"attachments"`
 }
 
 // parsed is what one transcript record contributes.
@@ -143,6 +167,9 @@ func parseRecord(line []byte) parsed {
 	if json.Unmarshal(r.Message, &m) != nil {
 		return out
 	}
+	if m.Model == "<synthetic>" {
+		return out // a placeholder Claude writes itself (e.g. on resume), not model output
+	}
 	out.model = m.Model
 	raw := json.RawMessage(line)
 	var text string
@@ -156,10 +183,21 @@ func parseRecord(line []byte) parsed {
 	if json.Unmarshal(m.Content, &blocks) != nil {
 		return out
 	}
+	// Images the user attached ride on the prompt's event.
+	var userFiles []bridge.Attachment
+	for i, b := range blocks {
+		if a, ok := inlineAttachment(b, fmt.Sprintf("%s:%d", r.UUID, i)); ok && r.Type == "user" {
+			userFiles = append(userFiles, a)
+		}
+	}
+	firstUserText := -1
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
 			if ev, ok := textEvent(r.Type, b.Text, raw); ok {
+				if ev.Type == bridge.EventUserMessage && firstUserText < 0 {
+					firstUserText = len(out.events)
+				}
 				out.events = append(out.events, ev)
 			}
 		case "thinking":
@@ -171,10 +209,79 @@ func parseRecord(line []byte) parsed {
 				Tool: &bridge.ToolEvent{ID: b.ID, Name: b.Name, Input: b.Input}})
 		case "tool_result":
 			out.events = append(out.events, bridge.Event{Type: bridge.EventToolResult, Raw: raw,
-				Tool: &bridge.ToolEvent{ID: b.ToolUseID, Output: contentText(b.Content), IsError: b.IsError}})
+				Tool:        &bridge.ToolEvent{ID: b.ToolUseID, Output: contentText(b.Content), IsError: b.IsError},
+				Attachments: resultAttachments(b)})
+			if ev, ok := sentFilesEvent(b.ToolUseID, r.ToolUseResult, raw); ok {
+				out.events = append(out.events, ev)
+			}
+		}
+	}
+	if len(userFiles) > 0 {
+		if firstUserText >= 0 {
+			out.events[firstUserText].Attachments = userFiles
+		} else {
+			out.events = append(out.events, bridge.Event{Type: bridge.EventUserMessage, Attachments: userFiles, Raw: raw})
 		}
 	}
 	return out
+}
+
+// inlineAttachment decodes an image or document block.
+func inlineAttachment(b contentBlock, id string) (bridge.Attachment, bool) {
+	if (b.Type != "image" && b.Type != "document") || b.Source == nil || b.Source.Type != "base64" {
+		return bridge.Attachment{}, false
+	}
+	data, err := base64.StdEncoding.DecodeString(b.Source.Data)
+	if err != nil {
+		return bridge.Attachment{}, false
+	}
+	name := b.Type
+	if exts, _ := mime.ExtensionsByType(b.Source.MediaType); len(exts) > 0 {
+		name += exts[len(exts)-1]
+	}
+	return bridge.Attachment{ID: id, Name: name, MediaType: b.Source.MediaType, Size: int64(len(data)), Data: data}, true
+}
+
+// resultAttachments returns the images and documents a tool result holds.
+func resultAttachments(b contentBlock) []bridge.Attachment {
+	var blocks []contentBlock
+	if json.Unmarshal(b.Content, &blocks) != nil {
+		return nil
+	}
+	var out []bridge.Attachment
+	for i, c := range blocks {
+		if a, ok := inlineAttachment(c, fmt.Sprintf("%s:%d", b.ToolUseID, i)); ok {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// sentFilesEvent turns a SendUserFile / SendUserMessage result into
+// EventFiles. Those tools exist when Remote Control is on.
+func sentFilesEvent(toolUseID string, raw json.RawMessage, rec json.RawMessage) (bridge.Event, bool) {
+	var sf sentFiles
+	if len(raw) == 0 || json.Unmarshal(raw, &sf) != nil || len(sf.Attachments) == 0 {
+		return bridge.Event{}, false
+	}
+	ev := bridge.Event{Type: bridge.EventFiles, Text: sf.Caption, Raw: rec}
+	if ev.Text == "" {
+		ev.Text = sf.Message
+	}
+	for i, f := range sf.Attachments {
+		if f.Path == "" {
+			continue // a reference to a file only the user's device holds
+		}
+		a := bridge.FileAttachment(fmt.Sprintf("%s:sent:%d", toolUseID, i), f.Path, sf.Caption)
+		if f.MediaType != "" {
+			a.MediaType = f.MediaType
+		}
+		if a.Size == 0 {
+			a.Size = f.Size
+		}
+		ev.Attachments = append(ev.Attachments, a)
+	}
+	return ev, len(ev.Attachments) > 0
 }
 
 var (

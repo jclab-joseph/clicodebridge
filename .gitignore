@@ -31,3 +31,10 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Binaries built from ./examples and ./cmd
+/webremote
+/basic
+/cbcapture
+# Written by Claude Code when it loads the mod from this folder
+/claude/bridgemod/tsconfig.json

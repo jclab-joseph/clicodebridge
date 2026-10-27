@@ -1,0 +1,40 @@
+[H[2J[Screen Reader Mode: on via flag]
+Claude Code v2.1.311
+Haiku 5.5 with medium effort · Claude Max
+/tmp/cbcapture-477344209
+you: Count slowly from 1 to 500, one number per line.Run this exact shell command with the Bash tool: echo cap > cap.txt
+tool: Bash (echo cap > cap.txt)
+Waiting…
+Permission Required: Bash command
+Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+> Run the exact command echo cap > cap.txt
+> echo cap > cap.txt
+Do you want to proceed?
+1. Yes
+2. Yes, and always allow access to /tmp/cbcapture-477344209 from this project
+3. Yes, and switch to auto mode — · auto mode handles these prompts for you
+4. No
+Select with numbers [1-4]. Then Enter to submit or Escape to cancel:
+Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[17;70H

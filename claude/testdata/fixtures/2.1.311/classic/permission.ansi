@@ -1,0 +1,40 @@
+[?1049h[H[2J  [38;5;153m46[m
+  [38;5;153m47[m
+  [38;5;153m48[m
+  [38;5;153m49[m
+  [38;5;153m50[m
+  [38;5;153m51[m
+  [38;5;153m52[m
+  [38;5;153m53[m
+  [38;5;153m54[m
+  [38;5;153m55[m
+  [38;5;153m56[m
+  [38;5;153m57[m
+  [38;5;153m58[m
+  [38;5;153m59[m
+  [38;5;153m60[m
+  [38;5;153m61[m
+  [38;5;153m62[m
+  [38;5;153m63[m
+  [38;5;153m64[m
+[38;5;246m  ⎿  Interrupted · What should Claude do instead?[m
+
+[38;5;246;48;5;237m❯ [38;5;231mRun this exact shell command with the Bash tool: echo cap > cap.txt[39m                                                   [m
+
+[38;5;246m●[m Writing "cap" into cap.txt in the working directory
+[38;5;246m  ⎿  $ echo cap > cap.txt[m
+
+[38;5;153m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+ [38;5;153;1mBash command[m
+ [1mTip: auto mode handles these prompts for you — choose "switch to auto mode" below[m
+ [38;5;246mWrite "cap" into cap.txt in the working directory[m
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[m
+ echo cap > cap.txt
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[m
+ Do you want to proceed?
+ [38;5;153m❯[m [38;5;246m1. [38;5;153mYes[m
+   [38;5;246m2. [mYes, and always allow access to [1m/tmp/cbcapture-3985209565[m from this project
+   [38;5;246m3. [mYes, and switch to auto mode[38;5;246m · auto mode handles these prompts for you[m
+   [38;5;246m4. [mNo
+
+ [38;5;246mEsc to cancel · Tab to amend[m[35;2H

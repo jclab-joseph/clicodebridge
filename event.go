@@ -11,11 +11,12 @@ type EventType string
 const (
 	EventSessionID       EventType = "session_id"       // SessionID became known
 	EventState           EventType = "state"            // State changed
-	EventUserMessage     EventType = "user_message"     // Text: a user prompt (from any client, including the TUI or remote control)
+	EventUserMessage     EventType = "user_message"     // Text: a user prompt (from any client, including the TUI or remote control), Attachments
 	EventAssistantText   EventType = "assistant_text"   // Text: assistant output
 	EventThinking        EventType = "thinking"         // Text: visible reasoning
 	EventToolCall        EventType = "tool_call"        // Tool
-	EventToolResult      EventType = "tool_result"      // Tool
+	EventToolResult      EventType = "tool_result"      // Tool, Attachments (images a tool returned)
+	EventFiles           EventType = "files"            // Attachments the agent sent to the user, Text: caption
 	EventTurnStarted     EventType = "turn_started"     //
 	EventTurnCompleted   EventType = "turn_completed"   // Text: final assistant message, Interrupted
 	EventRequest         EventType = "request"          // Request: answer with Session.Respond
@@ -23,6 +24,7 @@ const (
 	EventSettings        EventType = "settings"         // Settings changed
 	EventNotice          EventType = "notice"           // Text, Kind: informational CLI notification
 	EventRestarted       EventType = "restarted"        // the CLI process was relaunched; re-read Terminal()
+	EventDiagnostic      EventType = "diagnostic"       // Kind ("drift"), Text, Screen: a recognizer disagrees with the CLI's own state
 	EventError           EventType = "error"            // Text
 	EventExited          EventType = "exited"           // Text: exit reason
 )
@@ -43,6 +45,10 @@ type Event struct {
 	RequestID   string     `json:"requestId,omitempty"`
 	Resolution  Resolution `json:"resolution,omitempty"`
 	Settings    *Settings  `json:"settings,omitempty"`
+	// Attachments are images and files (see Attachment).
+	Attachments []Attachment `json:"attachments,omitempty"`
+	// Screen is the terminal text, for diagnostics.
+	Screen string `json:"screen,omitempty"`
 
 	// Raw is the provider record the event came from, when there is one.
 	Raw json.RawMessage `json:"raw,omitempty"`

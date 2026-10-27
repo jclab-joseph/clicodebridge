@@ -1,6 +1,0 @@
-❯ Count slowly from 1 to 200, one number per line, then say done.
-  ⎿  Tip: Name your conversations with /rename to find them easily in /resume later
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ⏸ manual mode on · esc to interrupt

@@ -15,15 +15,20 @@ import (
 // maxHistory bounds the per-session event replay buffer.
 const maxHistory = 5000
 
+// maxInlineBytes bounds the inline attachment data (decoded screenshots and
+// images) kept per session; the oldest is dropped first.
+const maxInlineBytes = 256 << 20
+
 type hub struct {
 	providers map[string]bridge.Provider
+	driftDir  string
 
 	mu      sync.Mutex
 	entries map[string]*entry
 }
 
-func newHub(providers map[string]bridge.Provider) *hub {
-	return &hub{providers: providers, entries: map[string]*entry{}}
+func newHub(driftDir string, providers map[string]bridge.Provider) *hub {
+	return &hub{providers: providers, driftDir: driftDir, entries: map[string]*entry{}}
 }
 
 // entry is one session plus its event history and live subscribers.
@@ -38,6 +43,12 @@ type entry struct {
 	history []bridge.Event
 	subs    map[chan bridge.Event]struct{}
 	exited  bool
+
+	// files holds every attachment seen in the session's events. Only these
+	// are served: the server never opens a path a request names.
+	files       map[string]bridge.Attachment
+	fileOrder   []string
+	inlineBytes int
 }
 
 type summary struct {
@@ -64,7 +75,7 @@ func (h *hub) start(ctx context.Context, provider string, opts bridge.SessionOpt
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	e := &entry{key: hex.EncodeToString(b), provider: provider, cwd: opts.Cwd, created: time.Now(), sess: s,
-		subs: map[chan bridge.Event]struct{}{}}
+		subs: map[chan bridge.Event]struct{}{}, files: map[string]bridge.Attachment{}}
 	h.mu.Lock()
 	h.entries[e.key] = e
 	h.mu.Unlock()
@@ -77,6 +88,9 @@ func (e *entry) pump() {
 	for ev := range e.sess.Events() {
 		ev.Raw = nil // provider records can be large and are not needed by the UI
 		e.mu.Lock()
+		for _, a := range ev.Attachments {
+			e.keepFile(a)
+		}
 		e.history = append(e.history, ev)
 		if len(e.history) > maxHistory {
 			e.history = append([]bridge.Event(nil), e.history[len(e.history)-maxHistory:]...)
@@ -98,6 +112,28 @@ func (e *entry) pump() {
 		delete(e.subs, ch)
 	}
 	e.mu.Unlock()
+}
+
+// keepFile records an attachment for serving. Caller holds e.mu.
+func (e *entry) keepFile(a bridge.Attachment) {
+	if _, dup := e.files[a.ID]; !dup {
+		e.fileOrder = append(e.fileOrder, a.ID)
+	}
+	e.files[a.ID] = a
+	e.inlineBytes += len(a.Data)
+	for e.inlineBytes > maxInlineBytes && len(e.fileOrder) > 1 {
+		old := e.fileOrder[0]
+		e.fileOrder = e.fileOrder[1:]
+		e.inlineBytes -= len(e.files[old].Data)
+		delete(e.files, old)
+	}
+}
+
+func (e *entry) file(id string) (bridge.Attachment, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	a, ok := e.files[id]
+	return a, ok
 }
 
 func (e *entry) subscribe() ([]bridge.Event, <-chan bridge.Event, func()) {

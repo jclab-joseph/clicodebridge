@@ -1,0 +1,40 @@
+  60
+  61
+  62
+  63
+  64
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Run this exact shell command with the Bash tool: echo cap > cap.txt
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Worked for 1s · done 5:56 PM
+
+❯ Use the AskUserQuestion tool once with exactly two questions: (1) header "Color", question "Which color?", single
+  select, options Red, Green, Blue. (2) header "Pets", question "Which pets?", multiSelect true, options Cat, Dog,
+  Fish.
+
+● User declined to answer questions
+  ⎿  · Which color? (Red / Green / Blue)
+     · Which pets? (Cat / Dog / Fish)
+
+✻ Sautéed for 1s · done 5:56 PM
+
+❯ Use the AskUserQuestion tool once with one question: header "Drink", question "Which drink?", single select, options
+  Tea, Coffee.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Drink
+
+Which drink?
+
+❯ 1. Tea
+     Select Tea
+  2. Coffee
+     Select Coffee
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

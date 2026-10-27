@@ -106,6 +106,8 @@ input, select, textarea {
 .msg.assistant pre, .tool pre, .req pre {
   background: var(--code); border-radius: 8px; padding: 10px 12px; overflow: auto; font-family: var(--mono); font-size: 12.5px; margin: 6px 0; white-space: pre;
 }
+.md-h1 { font-size: 1.25em; }
+.md-h2 { font-size: 1.12em; }
 .msg code { font-family: var(--mono); font-size: 12.5px; background: var(--code); padding: 1px 4px; border-radius: 4px; }
 .tool, .thinking { max-width: 860px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .tool summary, .thinking summary { cursor: pointer; padding: 6px 10px; font-size: 13px; color: var(--muted); display: flex; gap: 8px; overflow: hidden; }
@@ -116,6 +118,22 @@ input, select, textarea {
 .tool.error summary b { color: var(--err); }
 .notice { color: var(--muted); font-size: 12.5px; }
 .notice.error { color: var(--err); white-space: pre-wrap; font-family: var(--mono); font-size: 12px; }
+.files { display: grid; gap: 8px; max-width: 860px; }
+.files-caption { font-size: 13px; color: var(--muted); }
+.file-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 10px 12px; display: grid; gap: 8px; }
+.file-head { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.file-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-meta { color: var(--muted); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-head a { font-size: 12.5px; color: var(--accent); }
+.file-card img { max-width: 100%; max-height: 480px; border-radius: 6px; display: block; background: var(--sunken); }
+.file-card video { width: 100%; max-height: 480px; border-radius: 6px; background: #000; }
+.file-card audio { width: 100%; }
+.file-card .open { color: var(--accent); }
+.file-text { max-height: 360px; overflow: auto; }
+.file-text pre { margin: 0; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.thumb img { height: 96px; max-width: 220px; object-fit: contain; border-radius: 6px; border: 1px solid var(--line); background: var(--sunken); display: block; }
+.tool-thumbs { max-width: 860px; margin-top: -4px; }
 .turn-end { color: var(--muted); font-size: 11.5px; border-top: 1px dashed var(--line); padding-top: 4px; }
 
 .requests:empty { display: none; }

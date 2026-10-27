@@ -1,0 +1,40 @@
+[?1049h[H[2J  [38;5;153m54[m
+  [38;5;153m55[m
+  [38;5;153m56[m
+  [38;5;153m57[m
+  [38;5;153m58[m
+  [38;5;153m59[m
+  [38;5;153m60[m
+  [38;5;153m61[m
+  [38;5;153m62[m
+  [38;5;153m63[m
+  [38;5;153m64[m
+[38;5;246m  ⎿  Interrupted · What should Claude do instead?[m
+
+[38;5;246;48;5;237m❯ [38;5;231mRun this exact shell command with the Bash tool: echo cap > cap.txt[39m                                                   [m
+
+  [38;5;246mRan [1m1[22m shell command [m
+[38;5;246m  ⎿  Interrupted · What should Claude do instead?[m
+
+[38;5;246m✻[m [38;5;246mWorked for 1s · done 5:56 PM[m
+
+[38;5;246;48;5;237m❯ [38;5;231mUse the AskUserQuestion tool once with exactly two questions: (1) header "Color", question "Which color?", single [39m    [m
+[48;5;237m  [38;5;231mselect, options Red, Green, Blue. (2) header "Pets", question "Which pets?", multiSelect true, options Cat, Dog, [39m     [m
+[48;5;237m  [38;5;231mFish.[39m                                                                                                                 [m
+
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+←  ☒ Color  ☒ Pets [38;5;16;48;5;153m ✔ Submit [38;5;246;49m →[m
+
+[38;5;231;1mReview your answers[m
+
+ ● Which color?
+   [38;5;114m→ Green[m
+ ● Which pets?
+   [38;5;114m→ Cat, Fish[m
+
+[38;5;246mReady to submit your answers?[m
+
+[38;5;153m❯[m [38;5;246m1. [38;5;153mSubmit answers[m
+  [38;5;246m2. [mCancel
+
+[37;1H

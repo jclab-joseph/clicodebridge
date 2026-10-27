@@ -1,0 +1,8 @@
+[Screen Reader Mode: on via flag]
+Claude Code v2.1.311
+Haiku 5.5 with medium effort · Claude Max
+/tmp/cbcapture-477344209
+manual mode on
+effort: medium · /effort
+/rc
+$

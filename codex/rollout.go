@@ -3,8 +3,11 @@ package codex
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,9 +28,10 @@ type rolloutLine struct {
 }
 
 type sessionMeta struct {
-	ID         string `json:"id"`
-	Cwd        string `json:"cwd"`
-	Originator string `json:"originator"`
+	ID         string    `json:"id"`
+	Timestamp  time.Time `json:"timestamp"` // when the session started
+	Cwd        string    `json:"cwd"`
+	Originator string    `json:"originator"`
 }
 
 // readMeta returns the session_meta of a rollout file.
@@ -59,8 +63,10 @@ func samePath(a, b string) bool {
 	return err1 == nil && err2 == nil && ra == rb
 }
 
-// findNewRollout looks for a rollout for cwd modified since start that no
-// other session has claimed.
+// findNewRollout looks for a rollout for cwd whose session started at or
+// after start and that no other session has claimed. The start time comes
+// from session_meta: a previous session in the same directory can have
+// written its file a moment ago, so modification time alone is not enough.
 func findNewRollout(home, cwd string, start time.Time, claimed func(string) bool) (string, sessionMeta, bool) {
 	for _, day := range []time.Time{start, start.Add(-24 * time.Hour), time.Now()} {
 		dir := filepath.Join(home, "sessions", day.Format("2006"), day.Format("01"), day.Format("02"))
@@ -70,9 +76,14 @@ func findNewRollout(home, cwd string, start time.Time, claimed func(string) bool
 			if err != nil || fi.ModTime().Before(start.Add(-2*time.Second)) || claimed(p) {
 				continue
 			}
-			if m, ok := readMeta(p); ok && samePath(m.Cwd, cwd) {
-				return p, m, true
+			m, ok := readMeta(p)
+			if !ok || !samePath(m.Cwd, cwd) {
+				continue
 			}
+			if !m.Timestamp.IsZero() && m.Timestamp.Before(start.Add(-2*time.Second)) {
+				continue // an older session that was still writing
+			}
+			return p, m, true
 		}
 	}
 	return "", sessionMeta{}, false
@@ -127,6 +138,7 @@ func (t *tailer) poll() ([][]byte, error) {
 // --- record parsing ---------------------------------------------------------------
 
 type responseItem struct {
+	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Role      string          `json:"role"`
 	Content   json.RawMessage `json:"content"`
@@ -139,8 +151,39 @@ type responseItem struct {
 }
 
 type textPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	ImageURL string `json:"image_url"`
+}
+
+// imageParts decodes the input_image parts (data URLs) of a content list:
+// images the user attached, or that a tool such as view_image returned.
+func imageParts(raw json.RawMessage, idPrefix string) []bridge.Attachment {
+	var parts []textPart
+	if json.Unmarshal(raw, &parts) != nil {
+		return nil
+	}
+	var out []bridge.Attachment
+	for i, p := range parts {
+		if p.Type != "input_image" || !strings.HasPrefix(p.ImageURL, "data:") {
+			continue
+		}
+		meta, payload, ok := strings.Cut(strings.TrimPrefix(p.ImageURL, "data:"), ",")
+		if !ok || !strings.HasSuffix(meta, ";base64") {
+			continue
+		}
+		data, err := base64.StdEncoding.DecodeString(payload)
+		if err != nil {
+			continue
+		}
+		mt := strings.TrimSuffix(meta, ";base64")
+		name := "image"
+		if exts, _ := mime.ExtensionsByType(mt); len(exts) > 0 {
+			name += exts[len(exts)-1]
+		}
+		out = append(out, bridge.Attachment{ID: fmt.Sprintf("%s:%d", idPrefix, i), Name: name, MediaType: mt, Size: int64(len(data)), Data: data})
+	}
+	return out
 }
 
 type eventMsg struct {
@@ -208,12 +251,12 @@ func parseLine(line []byte) parsed {
 		switch it.Type {
 		case "message":
 			text := partsText(it.Content)
+			images := imageParts(it.Content, "msg:"+it.ID)
 			switch {
-			case strings.TrimSpace(text) == "":
-			case it.Role == "assistant":
+			case it.Role == "assistant" && strings.TrimSpace(text) != "":
 				out.events = append(out.events, bridge.Event{Type: bridge.EventAssistantText, Text: text, Raw: raw})
-			case it.Role == "user" && !isInjectedContext(text):
-				out.events = append(out.events, bridge.Event{Type: bridge.EventUserMessage, Text: text, Raw: raw})
+			case it.Role == "user" && !isInjectedContext(text) && (strings.TrimSpace(text) != "" || len(images) > 0):
+				out.events = append(out.events, bridge.Event{Type: bridge.EventUserMessage, Text: text, Attachments: images, Raw: raw})
 			}
 		case "reasoning":
 			var parts []string
@@ -243,7 +286,8 @@ func parseLine(line []byte) parsed {
 			}
 		case "function_call_output", "custom_tool_call_output", "local_shell_call_output":
 			out.events = append(out.events, bridge.Event{Type: bridge.EventToolResult, Raw: raw,
-				Tool: &bridge.ToolEvent{ID: it.CallID, Output: outputText(it.Output)}})
+				Tool:        &bridge.ToolEvent{ID: it.CallID, Output: outputText(it.Output)},
+				Attachments: imageParts(it.Output, it.CallID)})
 		}
 	}
 	return out

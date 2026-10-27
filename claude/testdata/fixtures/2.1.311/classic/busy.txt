@@ -1,0 +1,40 @@
+
+ ▐▛███▛█   Claude Code v2.1.311
+▝▜██████▀  Haiku 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   /tmp/cbcapture-3985209565 · /rc
+
+
+❯ Count slowly from 1 to 500, one number per line.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* Photosynthesizing… (2s · ↓ 75 tokens · thinking with medium effort)
+                                                                                                    ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt · ← for agents

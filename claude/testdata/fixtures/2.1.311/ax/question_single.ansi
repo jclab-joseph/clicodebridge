@@ -1,0 +1,40 @@
+[H[2J[Screen Reader Mode: on via flag]
+Claude Code v2.1.311
+Haiku 5.5 with medium effort · Claude Max
+/tmp/cbcapture-477344209
+you: Count slowly from 1 to 500, one number per line.Run this exact shell command with the Bash tool: echo cap > cap.txt
+tool error: Bash (echo cap > cap.txt)
+Interrupted  · What should Claude do instead?
+Worked for 2s · done 5:57 PM
+you: Use the AskUserQuestion tool once with exactly two questions: (1) header "Color", question "Which color?", single
+select, options Red, Green, Blue. (2) header "Pets", question "Which pets?", multiSelect true, options Cat, Dog, Fish.
+●  User declined to answer questions
+· Which color? (Red / Green / Blue)
+· Which pets? (Cat / Dog / Fish)
+Churned for 1s · done 5:57 PM
+you: Use the AskUserQuestion tool once with one question: header "Drink", question "Which drink?", single select,
+options Tea, Coffee.
+Question: Drink
+> Which drink?
+1. Tea — Select Tea
+2. Coffee — Select Coffee
+3. Other
+4. Chat about this
+Select with numbers [1-4]. Then Enter to submit or Escape to cancel:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[23;70H
