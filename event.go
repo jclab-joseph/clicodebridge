@@ -23,6 +23,7 @@ const (
 	EventSettings        EventType = "settings"         // Settings changed
 	EventNotice          EventType = "notice"           // Text, Kind: informational CLI notification
 	EventRestarted       EventType = "restarted"        // the CLI process was relaunched; re-read Terminal()
+	EventDiagnostic      EventType = "diagnostic"       // Kind ("drift"), Text, Screen: a recognizer disagrees with the CLI's own state
 	EventError           EventType = "error"            // Text
 	EventExited          EventType = "exited"           // Text: exit reason
 )
@@ -43,6 +44,8 @@ type Event struct {
 	RequestID   string     `json:"requestId,omitempty"`
 	Resolution  Resolution `json:"resolution,omitempty"`
 	Settings    *Settings  `json:"settings,omitempty"`
+	// Screen is the terminal text, for diagnostics.
+	Screen string `json:"screen,omitempty"`
 
 	// Raw is the provider record the event came from, when there is one.
 	Raw json.RawMessage `json:"raw,omitempty"`

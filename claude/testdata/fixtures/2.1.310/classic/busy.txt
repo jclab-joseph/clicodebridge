@@ -1,6 +1,40 @@
-❯ Count slowly from 1 to 200, one number per line, then say done.
-  ⎿  Tip: Name your conversations with /rename to find them easily in /resume later
+
+ ▐▛███▛█   Claude Code v2.1.310
+▝▜██████▀  Haiku 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   /tmp/cbcapture-4212195589 · /rc
+
+
+❯ Count slowly from 1 to 500, one number per line.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* Orbiting… (2s · ↓ 60 tokens)
+                                                                                                    ◐ medium · /effort
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯
+❯ 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  ⏸ manual mode on · esc to interrupt
+  ⏸ manual mode on · esc to interrupt · ← for agents

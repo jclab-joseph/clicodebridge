@@ -1,12 +1,40 @@
- ▐▛███▛█   Claude Code v2.1.296
-▝▜██████▀  Haiku 5.5 · Claude Max
- ▝▝   ▝▝   /…/scratchpad/work1 · /rc
 
-  Get to finished work sooner with Opus 5.5. Switch anytime with /model.
+ ▐▛███▛█   Claude Code v2.1.310
+▝▜██████▀  Haiku 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   /tmp/cbcapture-4212195589 · /rc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
                                                                                                     ◐ medium · /effort
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯ Try "edit <filepath> to..."
+❯ 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   ⏸ manual mode on · ? for shortcuts · ← for agents

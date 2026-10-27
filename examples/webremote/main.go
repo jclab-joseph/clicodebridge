@@ -38,11 +38,12 @@ func main() {
 	token := flag.String("token", "", "require this access token (?token=… once, then a cookie)")
 	claudeBin := flag.String("claude", "claude", "claude executable")
 	codexBin := flag.String("codex", "codex", "codex executable")
+	driftDir := flag.String("drift-dir", "", "save screens where a Claude recognizer disagrees with the CLI (fixtures for claude/testdata)")
 	flag.Parse()
 
 	claudeP := claude.New(claude.Config{Executable: *claudeBin})
 	defer claudeP.Close()
-	hub := newHub(map[string]bridge.Provider{
+	hub := newHub(*driftDir, map[string]bridge.Provider{
 		"claude": claudeP,
 		"codex":  codex.New(codex.Config{Executable: *codexBin}),
 	})
@@ -160,6 +161,8 @@ type createRequest struct {
 	TrustWorkspace    bool   `json:"trustWorkspace"`
 	Chrome            string `json:"chrome"` // "", "on", "off"
 	Search            bool   `json:"search"`
+	ScreenReader      bool   `json:"screenReader"`
+	Bridge            string `json:"bridge"` // "" (auto), "off"
 }
 
 func triState(v string) *bool {
@@ -184,6 +187,10 @@ func (h *hub) handleCreate(w http.ResponseWriter, r *http.Request) {
 		co := &claude.Options{
 			RemoteControl: triState(req.RemoteControl), RemoteControlName: req.RemoteControlName,
 			Chrome: triState(req.Chrome), TrustWorkspace: req.TrustWorkspace,
+			ScreenReader: req.ScreenReader, DriftDir: h.driftDir,
+		}
+		if req.Bridge == "off" {
+			co.Bridge = claude.BridgeOff
 		}
 		if req.Interaction == "terminal" {
 			co.Interaction = claude.InteractionTerminal

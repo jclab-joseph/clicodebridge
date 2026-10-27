@@ -3,11 +3,9 @@ package claude
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,17 +21,20 @@ const (
 	defaultHold = 9 * time.Minute
 	// maxHold keeps the hook timeout (hold + 30s) under Claude's 10m cap.
 	maxHold = 9*time.Minute + 30*time.Second
-	// readySettle is how long the input box must be visible before the
-	// session counts as idle; the TUI paints the editor lazily on startup.
+	// readySettle is how long the session must have been ready before it
+	// counts as idle; the TUI paints the editor lazily on startup.
 	readySettle = 500 * time.Millisecond
 	// interruptedTurnIdle ends a turn that never got a Stop hook (the user
-	// pressed Esc) once the screen has been idle this long.
+	// pressed Esc without the bridge mod) once it has been idle this long.
 	interruptedTurnIdle = 3 * time.Second
 	// stopFlushGrace bounds how long a turn stays open after the Stop hook
 	// while waiting for the transcript's turn_duration record. The hook can
 	// fire before the final assistant message is flushed to disk.
 	stopFlushGrace   = 2 * time.Second
 	startupWarnAfter = 60 * time.Second
+	// registryFallbackAfter is how long a missing registry file is
+	// tolerated before polling `claude agents --json` instead.
+	registryFallbackAfter = 8 * time.Second
 )
 
 type session struct {
@@ -43,6 +44,8 @@ type session struct {
 	co   Options
 	cwd  string
 	hold time.Duration
+	prof profile
+	mod  *modLink
 
 	hookPrefix string
 	unregister func()
@@ -59,6 +62,7 @@ type session struct {
 	readySince   time.Time
 	startedAt    time.Time
 	warned       bool
+	modWarned    bool
 	turnActive   bool
 	turnStart    time.Time
 	stopPending  bool // Stop hook seen; waiting for the transcript to catch up
@@ -69,6 +73,11 @@ type session struct {
 	promptSeen   chan struct{}
 	trustReq     string
 	trustBusy    bool
+	expectTrust  bool
+	reg          registry // last session-registry reading
+	regFallback  bool     // polling `claude agents --json`
+	version      string
+	drift        driftState
 	stop         chan struct{}
 	shutdownOnce sync.Once
 
@@ -119,7 +128,20 @@ func (p *Provider) Start(ctx context.Context, opts bridge.SessionOptions) (bridg
 	s := &session{
 		Base: core.NewBase("claude"),
 		p:    p, opts: opts, co: co, cwd: cwd, hold: hold,
+		prof: classicProfile{},
+		mod:  newModLink(),
 		stop: make(chan struct{}),
+	}
+	if co.ScreenReader {
+		s.prof = screenReaderProfile{}
+	}
+	if accepted, ok := trustAccepted(p.configDir(), cwd); !ok || !accepted {
+		s.expectTrust = true
+	}
+	if co.Bridge != BridgeOff {
+		if dir, err := bridgeModDir(); err == nil {
+			l.pluginDir = dir
+		}
 	}
 	id := opts.Resume
 	if id != "" {
@@ -157,6 +179,9 @@ func (s *session) startTerm(l launch) error {
 	if !core.HasEnv(env, "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION") {
 		env = append(env, "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false")
 	}
+	if l.pluginDir != "" {
+		env = core.SetEnv(env, "CLICODEBRIDGE_MOD_URL", s.hookPrefix)
+	}
 	t, err := terminal.Start(terminal.Options{
 		Path: s.p.cfg.Executable, Args: args, Dir: s.cwd, Env: env,
 		Cols: s.opts.Cols, Rows: s.opts.Rows,
@@ -165,7 +190,8 @@ func (s *session) startTerm(l launch) error {
 		return fmt.Errorf("claude: %w", err)
 	}
 	s.mu.Lock()
-	s.term, s.launch, s.ready, s.startedAt, s.warned = t, l, false, time.Now(), false
+	s.term, s.launch, s.ready, s.startedAt, s.warned, s.modWarned = t, l, false, time.Now(), false, false
+	s.reg = registry{}
 	s.mu.Unlock()
 	go s.watchExit(t)
 	return nil
@@ -179,6 +205,44 @@ func (s *session) currentTerm() *terminal.Terminal {
 
 // Terminal returns the PTY the CLI currently runs on.
 func (s *session) Terminal() *terminal.Terminal { return s.currentTerm() }
+
+// io returns a screen driver bound to the current terminal and profile.
+func (s *session) io() *screenIO { return &screenIO{t: s.currentTerm(), prof: s.prof, hint: s.hint} }
+
+// hint collects what structured channels say about the screen.
+func (s *session) hint() screenHint {
+	s.mu.Lock()
+	reg, ready, expectTrust := s.reg, s.ready, s.expectTrust
+	s.mu.Unlock()
+	h := screenHint{registryKnown: reg.ok && reg.Status != "", expectTrust: expectTrust && !ready}
+	if reg.Status == "waiting" {
+		h.waitingFor = reg.WaitingFor
+	}
+	for _, p := range s.PendingWhere(func(p *core.Pending) bool { return p.Req.Kind == bridge.RequestQuestion }) {
+		h.questions = p.Req.Questions
+		break
+	}
+	return h
+}
+
+func (s *session) cliVersion() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.version
+}
+
+func (s *session) setCLIVersion(v string) {
+	if v == "" {
+		return
+	}
+	s.mu.Lock()
+	changed := s.version != v
+	s.version = v
+	s.mu.Unlock()
+	if changed {
+		s.noteVersion(v)
+	}
+}
 
 func (s *session) watchExit(t *terminal.Terminal) {
 	err := t.Wait()
@@ -216,9 +280,6 @@ func (s *session) shutdown(reason string) {
 func (s *session) screenLoop() {
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
-	var lastTerm *terminal.Terminal
-	var lastVer uint64
-	var lastEval time.Time
 	for {
 		select {
 		case <-s.stop:
@@ -226,14 +287,50 @@ func (s *session) screenLoop() {
 		case <-tick.C:
 		}
 		t := s.currentTerm()
-		v := t.Version()
-		// Re-evaluate unchanged screens periodically for time-based rules.
-		if t == lastTerm && v == lastVer && time.Since(lastEval) < 500*time.Millisecond {
-			continue
-		}
-		lastTerm, lastVer, lastEval = t, v, time.Now()
-		s.observe(t, analyze(t.Lines()))
+		s.readRegistry(t)
+		io := &screenIO{t: t, prof: s.prof, hint: s.hint}
+		s.observe(t, io.info())
 	}
+}
+
+// readRegistry refreshes s.reg from the session record (cheap: one small
+// file) or, when that file is missing, from `claude agents --json`.
+func (s *session) readRegistry(t *terminal.Terminal) {
+	reg, ok := readRegistryFile(s.p.configDir(), t.Pid())
+	if ok && reg.SessionID != "" && reg.SessionID != s.ID() {
+		ok = false // a stale record of a recycled pid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ok {
+		s.reg = reg
+		return
+	}
+	if s.regFallback || time.Since(s.startedAt) < registryFallbackAfter {
+		return
+	}
+	s.regFallback = true
+	go func() {
+		for {
+			r, ok := readRegistryCommand(context.Background(), s.p.cfg.Executable, s.ID())
+			s.mu.Lock()
+			if ok {
+				s.reg = r
+			}
+			s.mu.Unlock()
+			select {
+			case <-s.stop:
+				return
+			case <-time.After(3 * time.Second):
+			}
+			if _, ok := readRegistryFile(s.p.configDir(), s.currentTerm().Pid()); ok {
+				s.mu.Lock()
+				s.regFallback = false
+				s.mu.Unlock()
+				return
+			}
+		}
+	}()
 }
 
 func (s *session) observe(t *terminal.Terminal, info screenInfo) {
@@ -244,14 +341,24 @@ func (s *session) observe(t *terminal.Terminal, info screenInfo) {
 		s.mu.Unlock()
 		return
 	}
-	if info.InputBox && !s.ready {
+	reg := s.reg
+	engineUp := reg.ok && reg.Status != ""
+	if (engineUp || info.InputBox) && !s.ready {
 		s.ready, s.readySince = true, now
 	}
 	if !s.ready && !s.warned && now.Sub(s.startedAt) > startupWarnAfter && info.Trust == nil {
 		s.warned = true
-		go s.Errorf(fmt.Errorf("claude has not shown its prompt after %s; screen:\n%s", startupWarnAfter, strings.Join(t.Lines(), "\n")))
+		go s.Errorf(fmt.Errorf("claude has not shown its prompt after %s; screen:\n%s", startupWarnAfter, t.Screen().Text()))
 	}
-	if s.turnActive && info.idle() && !s.HasPending() {
+	modMissing := s.launch.pluginDir != "" && s.ready && !s.modWarned && now.Sub(s.readySince) > 20*time.Second && !s.mod.isReady()
+	if modMissing {
+		s.modWarned = true
+	}
+	idleNow := info.idle()
+	if engineUp {
+		idleNow = reg.Status == "idle"
+	}
+	if s.turnActive && idleNow && !s.HasPending() {
 		if s.idleSince.IsZero() {
 			s.idleSince = now
 		} else if now.Sub(s.idleSince) > interruptedTurnIdle && now.Sub(s.turnStart) > interruptedTurnIdle {
@@ -263,9 +370,14 @@ func (s *session) observe(t *terminal.Terminal, info screenInfo) {
 	ready := s.ready && now.Sub(s.readySince) >= readySettle
 	s.mu.Unlock()
 
+	if modMissing {
+		s.Emit(bridge.Event{Type: bridge.EventNotice, Kind: "bridge_mod",
+			Text: "bridge mod did not connect; prompts and interrupts use the keyboard"})
+	}
 	if endInterrupted {
 		s.endTurn("", true)
 	}
+	s.setCLIVersion(reg.Version)
 	s.UpdateSettings(func(st *bridge.Settings) {
 		if info.Mode != "" {
 			st.Mode = info.Mode
@@ -273,22 +385,30 @@ func (s *session) observe(t *terminal.Terminal, info screenInfo) {
 		if info.Effort != "" {
 			st.Effort = info.Effort
 		}
-		if info.RemoteURL != "" {
+		if u := remoteControlURL(reg.BridgeSessionID); u != "" {
+			st.RemoteControlURL = u
+		} else if info.RemoteURL != "" {
 			st.RemoteControlURL = info.RemoteURL
 		}
 	})
 	s.observeTrust(info)
-	s.trackDialogs(info)
+	s.trackDialogs(info, reg)
+	s.checkDrift(reg, info, ready)
 
 	s.mu.Lock()
 	turn := s.turnActive
 	s.mu.Unlock()
+	waiting := s.HasPending() || info.dialogVisible() || (engineUp && reg.Status == "waiting")
+	busy := info.Busy || turn
+	if engineUp {
+		busy = reg.Status == "busy" || turn
+	}
 	switch {
-	case s.HasPending() || info.dialogVisible():
+	case waiting:
 		s.SetState(bridge.StateWaiting)
 	case !ready:
 		s.SetState(bridge.StateStarting)
-	case info.Busy || turn:
+	case busy:
 		s.SetState(bridge.StateBusy)
 	default:
 		s.SetState(bridge.StateIdle)
@@ -315,7 +435,8 @@ func (s *session) observeTrust(info screenInfo) {
 		s.trustBusy = true
 		s.mu.Unlock()
 		go func() {
-			err := s.answerTrust(context.Background(), true)
+			err := s.prof.answerTrust(context.Background(), s.io(), true)
+			time.Sleep(time.Second) // let the dialog close before re-checking
 			s.mu.Lock()
 			s.trustBusy = false
 			s.mu.Unlock()
@@ -339,8 +460,11 @@ func (s *session) observeTrust(info screenInfo) {
 
 // trackDialogs resolves terminal-mode requests whose dialog disappeared
 // without Respond: someone answered in the TUI or via remote control.
-func (s *session) trackDialogs(info screenInfo) {
-	visible := info.Permission != nil || info.Question != nil || info.Review != nil
+func (s *session) trackDialogs(info screenInfo, reg registry) {
+	visible := info.Permission != nil || info.Question != nil || info.Review != nil || info.TextEntry > 0
+	if reg.ok && reg.Status != "" {
+		visible = reg.Status == "waiting" && (reg.WaitingFor == waitingPermission || reg.WaitingFor == waitingInput)
+	}
 	var gone []string
 	s.mu.Lock()
 	for _, p := range s.PendingWhere(func(p *core.Pending) bool { _, ok := p.Data.(*hookPending); return ok }) {
@@ -443,7 +567,10 @@ func (s *session) stopTurn(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.turnActive {
-		s.stopPending, s.stopAt, s.stopText = true, time.Now(), text
+		s.stopPending, s.stopAt = true, time.Now()
+		if text != "" {
+			s.stopText = text
+		}
 	}
 }
 
@@ -470,6 +597,9 @@ func (s *session) endTurn(text string, interrupted bool) {
 // --- hooks -----------------------------------------------------------------
 
 func (s *session) onHook(ctx context.Context, event string, body []byte) []byte {
+	if strings.HasPrefix(event, "mod.") {
+		return s.onModHook(ctx, event, body)
+	}
 	var in hookInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return nil
@@ -577,523 +707,4 @@ func (s *session) onPermissionRequest(ctx context.Context, in *hookInput) []byte
 	}
 	s.Resolve(req.ID, bridge.ResolvedByClient)
 	return out
-}
-
-// --- Session API -------------------------------------------------------------
-
-func (s *session) waitStarted(ctx context.Context) error {
-	return s.WaitFor(ctx, 100*time.Millisecond, func() bool {
-		st := s.State()
-		return st != bridge.StateStarting
-	})
-}
-
-// waitInputReady waits for StateIdle. When no turn is running and nothing is
-// pending, the screen may still lag a just-finished turn, so it waits a
-// little instead of failing; otherwise it returns ErrBusy.
-func (s *session) waitInputReady(ctx context.Context) error {
-	if err := s.waitStarted(ctx); err != nil {
-		return err
-	}
-	wctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	_ = s.WaitFor(wctx, 50*time.Millisecond, func() bool {
-		if s.State() == bridge.StateIdle {
-			return true
-		}
-		s.mu.Lock()
-		active := s.turnActive
-		s.mu.Unlock()
-		return active || s.HasPending()
-	})
-	if s.State() == bridge.StateIdle {
-		return nil
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return bridge.ErrBusy
-}
-
-// Send submits a prompt.
-func (s *session) Send(ctx context.Context, prompt string) error {
-	if strings.TrimSpace(prompt) == "" {
-		return errors.New("claude: empty prompt")
-	}
-	s.ctl.Lock()
-	defer s.ctl.Unlock()
-	if err := s.waitInputReady(ctx); err != nil {
-		return err
-	}
-	t := s.currentTerm()
-	seen := make(chan struct{})
-	s.mu.Lock()
-	s.promptSeen = seen
-	s.mu.Unlock()
-	if err := core.Press(ctx, t, terminal.KeyCtrlU, terminal.BracketedPaste(prompt)); err != nil {
-		return err
-	}
-	core.Settle(ctx, t, 150*time.Millisecond, 1500*time.Millisecond)
-	// Claude sometimes drops an Enter that arrives while it is still
-	// processing pasted input; UserPromptSubmit confirms acceptance.
-	for attempt := 0; attempt < 3; attempt++ {
-		if _, err := t.WriteString(terminal.KeyEnter); err != nil {
-			return err
-		}
-		select {
-		case <-seen:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-s.Done():
-			return bridge.ErrExited
-		case <-time.After(2500 * time.Millisecond):
-		}
-		if analyze(t.Lines()).Busy {
-			return nil
-		}
-	}
-	return errors.New("claude: the prompt was not accepted")
-}
-
-// Command runs a slash command.
-func (s *session) Command(ctx context.Context, command string) error {
-	s.ctl.Lock()
-	defer s.ctl.Unlock()
-	return s.commandLocked(ctx, command)
-}
-
-func (s *session) commandLocked(ctx context.Context, command string) error {
-	if err := s.waitInputReady(ctx); err != nil {
-		return err
-	}
-	if !strings.HasPrefix(command, "/") {
-		command = "/" + command
-	}
-	t := s.currentTerm()
-	if err := core.Press(ctx, t, terminal.KeyCtrlU, command); err != nil {
-		return err
-	}
-	core.Settle(ctx, t, 200*time.Millisecond, 1500*time.Millisecond)
-	if _, err := t.WriteString(terminal.KeyEnter); err != nil {
-		return err
-	}
-	core.Settle(ctx, t, 300*time.Millisecond, 3*time.Second)
-	return nil
-}
-
-// Interrupt presses Esc, which stops the running turn (or cancels a dialog).
-func (s *session) Interrupt(ctx context.Context) error {
-	_, err := s.currentTerm().WriteString(terminal.KeyEscape)
-	return err
-}
-
-// Respond answers a pending request.
-func (s *session) Respond(ctx context.Context, id string, r bridge.Response) error {
-	p := s.FindPending(id)
-	if p == nil {
-		return bridge.ErrUnknownRequest
-	}
-	if !r.Cancel {
-		switch p.Req.Kind {
-		case bridge.RequestQuestion:
-			if err := bridge.ValidateAnswers(p.Req.Questions, r.Answers); err != nil {
-				return err
-			}
-		case bridge.RequestPermission:
-			if _, err := p.Req.Permission.ResolveOption(r); err != nil {
-				return err
-			}
-		}
-	}
-	switch d := p.Data.(type) {
-	case trustPending:
-		opt, _ := p.Req.Permission.ResolveOption(r)
-		s.ctl.Lock()
-		err := s.answerTrust(ctx, !r.Cancel && opt.Kind != bridge.Deny)
-		s.ctl.Unlock()
-		if err == nil {
-			s.Resolve(id, bridge.ResolvedByClient)
-		}
-		return err
-	case *hookPending:
-		s.mu.Lock()
-		if d.held {
-			select {
-			case d.answer <- r:
-			default:
-				s.mu.Unlock()
-				return errors.New("claude: request already answered")
-			}
-			s.mu.Unlock()
-			return nil
-		}
-		if d.answering {
-			s.mu.Unlock()
-			return errors.New("claude: request is already being answered")
-		}
-		d.answering = true
-		s.mu.Unlock()
-		s.ctl.Lock()
-		var err error
-		if p.Req.Kind == bridge.RequestQuestion {
-			err = s.answerQuestion(ctx, &p.Req, r)
-		} else {
-			err = s.answerPermission(ctx, &p.Req, r)
-		}
-		s.ctl.Unlock()
-		s.mu.Lock()
-		d.answering = false
-		s.mu.Unlock()
-		if err == nil {
-			s.Resolve(id, bridge.ResolvedByClient)
-		}
-		return err
-	}
-	return bridge.ErrUnknownRequest
-}
-
-// --- answering dialogs by keyboard -----------------------------------------
-
-func (s *session) answerTrust(ctx context.Context, trust bool) error {
-	t := s.currentTerm()
-	want := trustRows[1]
-	if trust {
-		want = trustRows[0]
-	}
-	err := core.Focus(ctx, t, func(lines []string) (int, int, bool) {
-		d := analyze(lines).Trust
-		if d == nil || d.Focused < 0 {
-			return 0, 0, false
-		}
-		return d.Focused, d.index(want), d.index(want) >= 0
-	})
-	if err != nil {
-		return err
-	}
-	_, err = t.WriteString(terminal.KeyEnter)
-	return err
-}
-
-func (s *session) answerPermission(ctx context.Context, req *bridge.Request, r bridge.Response) error {
-	t := s.currentTerm()
-	lines, err := core.WaitLines(ctx, t, 10*time.Second, func(l []string) bool { return analyze(l).Permission != nil })
-	if err != nil {
-		return fmt.Errorf("claude: permission dialog not on screen: %w", err)
-	}
-	if r.Cancel {
-		_, err := t.WriteString(terminal.KeyEscape)
-		return err
-	}
-	opt, _ := req.Permission.ResolveOption(r)
-	d := analyze(lines).Permission
-	ord := screenOrdinal(d, opt)
-	if ord == 0 {
-		return fmt.Errorf("claude: no on-screen option matches %q", opt.Label)
-	}
-	_, err = t.WriteString(strconv.Itoa(ord))
-	return err
-}
-
-// screenOrdinal maps a request option to the TUI option to press.
-func screenOrdinal(d *permissionDialog, opt bridge.PermissionOption) int {
-	if opt.Kind == bridge.OtherOption {
-		// "Allow and switch to <mode> mode" -> "Yes, and switch to <mode> mode".
-		if words := strings.Fields(strings.ToLower(opt.Label)); len(words) >= 2 {
-			mode := words[len(words)-2]
-			for _, o := range d.Options {
-				l := strings.ToLower(o.Label)
-				if strings.Contains(l, "switch to") && strings.Contains(l, mode) {
-					return o.Ordinal
-				}
-			}
-		}
-	}
-	for _, o := range d.Options {
-		if classifyPermissionLabel(o.Label) == opt.Kind {
-			return o.Ordinal
-		}
-	}
-	if opt.Kind == bridge.OtherOption {
-		for _, o := range d.Options {
-			if classifyPermissionLabel(o.Label) == bridge.AllowOnce {
-				return o.Ordinal
-			}
-		}
-	}
-	return 0
-}
-
-func normalizeSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
-
-// sameQuestion matches the on-screen question (possibly wrapped, so only its
-// first row) against the full question text.
-func sameQuestion(onScreen, text string) bool {
-	a, b := normalizeSpace(onScreen), normalizeSpace(text)
-	return a != "" && strings.HasPrefix(b, a)
-}
-
-func (s *session) answerQuestion(ctx context.Context, req *bridge.Request, r bridge.Response) error {
-	t := s.currentTerm()
-	focus := func(kind questionRowKind) error {
-		return core.Focus(ctx, t, func(lines []string) (int, int, bool) {
-			d := analyze(lines).Question
-			if d == nil {
-				return 0, 0, false
-			}
-			return d.focused(), d.find(kind, 0), d.focused() >= 0 && d.find(kind, 0) >= 0
-		})
-	}
-	typeText := func(text string) error {
-		text = strings.Join(strings.Fields(text), " ")
-		if _, err := t.WriteString(text); err != nil {
-			return err
-		}
-		core.Settle(ctx, t, 150*time.Millisecond, 1500*time.Millisecond)
-		return nil
-	}
-	for i, q := range req.Questions {
-		lines, err := core.WaitLines(ctx, t, 10*time.Second, func(l []string) bool {
-			d := analyze(l).Question
-			return d != nil && sameQuestion(d.Question, q.Text)
-		})
-		if err != nil {
-			return fmt.Errorf("claude: question %d not on screen: %w", i+1, err)
-		}
-		if r.Cancel {
-			_, err := t.WriteString(terminal.KeyEscape)
-			return err
-		}
-		a := r.Answers[i]
-		if !q.MultiSelect {
-			if a.Text != "" {
-				if err := focus(rowText); err != nil {
-					return err
-				}
-				if err := typeText(a.Text); err != nil {
-					return err
-				}
-				if _, err := t.WriteString(terminal.KeyEnter); err != nil {
-					return err
-				}
-			} else if _, err := t.WriteString(strconv.Itoa(q.OptionIndex(a.Selected[0]) + 1)); err != nil {
-				return err
-			}
-		} else {
-			d := analyze(lines).Question
-			for _, label := range a.Selected {
-				idx := q.OptionIndex(label)
-				if row := d.find(rowOption, idx+1); row >= 0 && d.Rows[row].Checked {
-					continue // already checked; pressing would uncheck it
-				}
-				if err := core.Press(ctx, t, strconv.Itoa(idx+1)); err != nil {
-					return err
-				}
-				core.Settle(ctx, t, 100*time.Millisecond, time.Second)
-			}
-			if a.Text != "" {
-				if err := focus(rowText); err != nil {
-					return err
-				}
-				if err := typeText(a.Text); err != nil {
-					return err
-				}
-			}
-			if err := focus(rowSubmit); err != nil {
-				return err
-			}
-			if _, err := t.WriteString(terminal.KeyEnter); err != nil {
-				return err
-			}
-		}
-		core.Settle(ctx, t, 150*time.Millisecond, 1500*time.Millisecond)
-	}
-	// Multi-question and multi-select dialogs end on a review tab.
-	lines, _ := core.WaitLines(ctx, t, 2*time.Second, func(l []string) bool {
-		info := analyze(l)
-		return info.Review != nil || (info.Question == nil && !info.dialogVisible())
-	})
-	if rv := analyze(lines).Review; rv != nil {
-		if ord := rv.submitOrdinal(); ord > 0 {
-			_, err := t.WriteString(strconv.Itoa(ord))
-			return err
-		}
-	}
-	return nil
-}
-
-// --- settings ----------------------------------------------------------------
-
-func inCycle(mode string) bool {
-	for _, m := range shiftTabCycle {
-		if m == mode {
-			return true
-		}
-	}
-	return false
-}
-
-// SetMode switches the permission mode, with Shift+Tab when the mode is in
-// the TUI's cycle, otherwise by relaunching.
-func (s *session) SetMode(ctx context.Context, mode string) error {
-	m := normalizeMode(mode)
-	switch m {
-	case ModeManual, ModeAcceptEdits, ModePlan, ModeAuto, ModeDontAsk, ModeBypass:
-	default:
-		return fmt.Errorf("claude: unknown mode %q", mode)
-	}
-	s.ctl.Lock()
-	defer s.ctl.Unlock()
-	if err := s.waitStarted(ctx); err != nil {
-		return err
-	}
-	if st := s.State(); st != bridge.StateIdle && st != bridge.StateBusy {
-		return bridge.ErrBusy
-	}
-	t := s.currentTerm()
-	if inCycle(m) {
-		for i := 0; i < len(shiftTabCycle)+2; i++ {
-			cur := analyze(t.Lines()).Mode
-			if cur == m {
-				s.mu.Lock()
-				s.launch.mode = m
-				s.mu.Unlock()
-				s.UpdateSettings(func(st *bridge.Settings) { st.Mode = m })
-				return nil
-			}
-			if cur == "" {
-				break
-			}
-			v := t.Version()
-			if _, err := t.WriteString(terminal.KeyShiftTab); err != nil {
-				return err
-			}
-			_, _ = core.WaitLines(ctx, t, time.Second, func([]string) bool { return t.Version() != v })
-			core.Settle(ctx, t, 150*time.Millisecond, time.Second)
-		}
-	}
-	if s.State() != bridge.StateIdle {
-		return bridge.ErrBusy
-	}
-	return s.restartLocked(ctx, func(l *launch) { l.mode = m })
-}
-
-// SetModel switches the model.
-func (s *session) SetModel(ctx context.Context, model string) error {
-	if strings.TrimSpace(model) == "" {
-		return errors.New("claude: empty model")
-	}
-	s.ctl.Lock()
-	defer s.ctl.Unlock()
-	if !s.co.LiveSettingChanges {
-		if err := s.requireIdle(ctx); err != nil {
-			return err
-		}
-		return s.restartLocked(ctx, func(l *launch) { l.model = model })
-	}
-	if err := s.commandLocked(ctx, "/model "+model); err != nil {
-		return err
-	}
-	t := s.currentTerm()
-	lines, _ := core.WaitLines(ctx, t, 2*time.Second, func(l []string) bool { return analyze(l).ModelSwap })
-	if analyze(lines).ModelSwap {
-		if _, err := t.WriteString("1"); err != nil {
-			return err
-		}
-	}
-	s.UpdateSettings(func(st *bridge.Settings) { st.Model = model })
-	return nil
-}
-
-// SetEffort switches the reasoning effort.
-func (s *session) SetEffort(ctx context.Context, effort string) error {
-	e := normalizeEffort(effort)
-	if e == "" {
-		return fmt.Errorf("claude: unknown effort %q", effort)
-	}
-	s.ctl.Lock()
-	defer s.ctl.Unlock()
-	if !s.co.LiveSettingChanges {
-		if err := s.requireIdle(ctx); err != nil {
-			return err
-		}
-		return s.restartLocked(ctx, func(l *launch) { l.effort = e })
-	}
-	if err := s.commandLocked(ctx, "/effort "+e); err != nil {
-		return err
-	}
-	s.UpdateSettings(func(st *bridge.Settings) { st.Effort = e })
-	return nil
-}
-
-func (s *session) requireIdle(ctx context.Context) error { return s.waitInputReady(ctx) }
-
-// restartLocked relaunches the CLI on the same conversation with changed
-// launch flags. Caller holds s.ctl and has checked the session is idle.
-func (s *session) restartLocked(ctx context.Context, mutate func(*launch)) error {
-	s.mu.Lock()
-	old := s.term
-	l := s.launch
-	mutate(&l)
-	l.resume, l.sessionID, l.fork = s.Base.ID(), "", false
-	s.restarting = true
-	s.mu.Unlock()
-	s.SetState(bridge.StateStarting)
-
-	_ = core.Press(ctx, old, terminal.KeyCtrlU, "/exit")
-	core.Settle(ctx, old, 150*time.Millisecond, time.Second)
-	_, _ = old.WriteString(terminal.KeyEnter)
-	select {
-	case <-old.Done():
-	case <-time.After(5 * time.Second):
-	}
-	_ = old.Close()
-
-	err := s.startTerm(l)
-	s.mu.Lock()
-	s.restarting = false
-	s.mu.Unlock()
-	if err != nil {
-		s.shutdown("restart failed: " + err.Error())
-		return err
-	}
-	s.UpdateSettings(func(st *bridge.Settings) {
-		if l.model != "" {
-			st.Model = l.model
-		}
-		if l.effort != "" {
-			st.Effort = l.effort
-		}
-		if l.mode != "" {
-			st.Mode = l.mode
-		}
-	})
-	s.Emit(bridge.Event{Type: bridge.EventRestarted})
-	wctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	return s.waitStarted(wctx)
-}
-
-// Close exits the CLI.
-func (s *session) Close() error {
-	s.mu.Lock()
-	if s.closing {
-		s.mu.Unlock()
-		<-s.Done()
-		return nil
-	}
-	s.closing = true
-	t := s.term
-	s.mu.Unlock()
-	// Ctrl+C twice is Claude's exit shortcut from any screen.
-	_, _ = t.WriteString(terminal.KeyCtrlC)
-	time.Sleep(150 * time.Millisecond)
-	_, _ = t.WriteString(terminal.KeyCtrlC)
-	select {
-	case <-t.Done():
-	case <-time.After(5 * time.Second):
-	}
-	_ = t.Close()
-	<-s.Done()
-	return nil
 }

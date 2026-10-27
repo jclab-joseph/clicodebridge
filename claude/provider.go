@@ -20,6 +20,7 @@ import (
 	"time"
 
 	bridge "github.com/jclab-joseph/clicodebridge"
+	"github.com/jclab-joseph/clicodebridge/internal/core"
 	"github.com/jclab-joseph/clicodebridge/internal/hookserver"
 )
 
@@ -131,3 +132,8 @@ func providerOptions(v any) (Options, error) {
 	}
 	return Options{}, fmt.Errorf("claude: SessionOptions.Provider must be *claude.Options, got %T", v)
 }
+
+// Environ returns the process environment without the session markers a
+// parent Claude Code sets, plus extra. Use it to launch claude yourself
+// with the same environment a session gets.
+func Environ(extra ...string) []string { return core.Environ(sessionMarkerEnv, extra...) }

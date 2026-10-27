@@ -143,6 +143,9 @@ func parseRecord(line []byte) parsed {
 	if json.Unmarshal(r.Message, &m) != nil {
 		return out
 	}
+	if m.Model == "<synthetic>" {
+		return out // a placeholder Claude writes itself (e.g. on resume), not model output
+	}
 	out.model = m.Model
 	raw := json.RawMessage(line)
 	var text string

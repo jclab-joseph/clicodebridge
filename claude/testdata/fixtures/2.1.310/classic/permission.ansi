@@ -1,0 +1,40 @@
+[?1049h[H[2J  215
+  216
+  217
+  218
+  219
+  220
+  221
+  222
+  223
+  224
+  225
+  226
+  227
+  228
+  229
+  230
+  231
+  232
+  233
+[38;5;246m  ⎿  Interrupted · What should Claude do instead?[m
+
+[38;5;246;48;5;237m❯ [38;5;231mRun this exact shell command with the Bash tool: echo cap > cap.txt[39m                                                   [m
+
+[38;5;246m [m Writing "cap" into cap.txt in the working directory
+[38;5;246m  ⎿  $ echo cap > cap.txt[m
+
+[38;5;153m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+ [38;5;153;1mBash command[m
+ [1mTip: auto mode handles these prompts for you — choose "switch to auto mode" below[m
+ [38;5;246mWrite "cap" into cap.txt in the working directory[m
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[m
+ echo cap > cap.txt
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌[m
+ Do you want to proceed?
+ [38;5;153m❯[m [38;5;246m1. [38;5;153mYes[m
+   [38;5;246m2. [mYes, and always allow access to [1m/tmp/cbcapture-4212195589[m from this project
+   [38;5;246m3. [mYes, and switch to auto mode[38;5;246m · auto mode handles these prompts for you[m
+   [38;5;246m4. [mNo
+
+ [38;5;246mEsc to cancel · Tab to amend[m[35;2H

@@ -17,13 +17,14 @@ const maxHistory = 5000
 
 type hub struct {
 	providers map[string]bridge.Provider
+	driftDir  string
 
 	mu      sync.Mutex
 	entries map[string]*entry
 }
 
-func newHub(providers map[string]bridge.Provider) *hub {
-	return &hub{providers: providers, entries: map[string]*entry{}}
+func newHub(driftDir string, providers map[string]bridge.Provider) *hub {
+	return &hub{providers: providers, driftDir: driftDir, entries: map[string]*entry{}}
 }
 
 // entry is one session plus its event history and live subscribers.

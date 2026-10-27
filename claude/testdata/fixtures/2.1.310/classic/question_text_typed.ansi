@@ -1,0 +1,40 @@
+[?1049h[H[2J  229
+  230
+  231
+  232
+  233
+[38;5;246m  ⎿  Interrupted · What should Claude do instead?[m
+
+[38;5;246;48;5;237m❯ [38;5;231mRun this exact shell command with the Bash tool: echo cap > cap.txt[39m                                                   [m
+
+  [38;5;246mRan [1m1[22m shell command [m
+[38;5;246m  ⎿  Interrupted · What should Claude do instead?[m
+
+[38;5;246m✻[m [38;5;246mChurned for 3s · done 12:07 PM[m
+
+[38;5;246;48;5;237m❯ [38;5;231mUse the AskUserQuestion tool once with exactly two questions: (1) header "Color", question "Which color?", single [39m    [m
+[48;5;237m  [38;5;231mselect, options Red, Green, Blue. (2) header "Pets", question "Which pets?", multiSelect true, options Cat, Dog, [39m     [m
+[48;5;237m  [38;5;231mFish.[39m                                                                                                                 [m
+
+[38;5;246m● [mUser declined to answer questions
+[38;5;246m  ⎿  · Which color? (Red / Green / Blue)[m
+     [38;5;246m· Which pets? (Cat / Dog / Fish)[m
+
+[38;5;246m✻[m [38;5;246mSautéed for 1s · done 12:07 PM[m
+
+[38;5;246;48;5;237m❯ [38;5;231mUse the AskUserQuestion tool once with one question: header "Drink", question "Which drink?", single select, options [39m [m
+[48;5;237m  [38;5;231mTea, Coffee.[39m                                                                                                          [m
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+[38;5;16;48;5;153m ☐ Drink [m
+
+[38;5;231;1mWhich drink?[m
+
+  [38;5;246m1.[m Tea
+     [38;5;246mTea[m
+  [38;5;246m2.[m Coffee
+     [38;5;246mCoffee[m
+[38;5;153m❯[m [38;5;246m3. [mWater
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m
+  4. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · ctrl+g to edit in VS Code · Esc to cancel[m[36;11H

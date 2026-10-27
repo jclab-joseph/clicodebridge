@@ -1,0 +1,63 @@
+# Nightly check of the Claude Code recognizers against the latest CLI.
+#
+# 1. Unit tests against the committed fixtures.
+# 2. cbcapture records fresh screens from the latest CLI; the fixture tests
+#    then run on them too, so a TUI change fails here first.
+# 3. The real e2e suite.
+#
+# Needs the ANTHROPIC_API_KEY secret. The captured fixtures are uploaded as
+# an artifact: commit them under claude/testdata/fixtures when they pass, or
+# use them to fix the recognizers when they do not.
+#
+# NOTE: not yet run in CI. Interactive claude with an API key may show
+# first-run prompts; the seed step below pre-accepts onboarding and the key.
+name: claude-drift
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the latest Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code@latest
+          claude --version
+      - name: Seed first-run state
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          key = os.environ.get("ANTHROPIC_API_KEY", "")
+          path = os.path.expanduser("~/.claude.json")
+          cfg = {"hasCompletedOnboarding": True, "customApiKeyResponses": {"approved": [key[-20:]], "rejected": []}}
+          json.dump(cfg, open(path, "w"))
+          EOF
+      - name: Unit tests
+        run: go test -race ./...
+      - name: Capture fixtures from the latest CLI
+        run: go run ./cmd/cbcapture -out claude/testdata/fixtures
+      - name: Recognizers on the fresh fixtures
+        run: go test ./claude -run 'TestFixtures|TestFocusByStyle' -v
+      - name: Real e2e
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e"
+          CLICODEBRIDGE_E2E_DIR="$RUNNER_TEMP/e2e" go test -tags e2e ./claude -run E2E -v -timeout 20m
+      - name: Upload captured fixtures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-fixtures
+          path: claude/testdata/fixtures

@@ -118,6 +118,7 @@ func (t *Terminal) readLoop() {
 				delete(t.subs, id)
 			}
 			t.mu.Unlock()
+			closeInput(t.em.InputPipe()) // stops the reply-forwarding goroutine
 			return
 		}
 	}

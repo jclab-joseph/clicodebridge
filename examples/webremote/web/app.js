@@ -37,6 +37,8 @@ function toast(msg) {
   toastTimer = setTimeout(() => (t.hidden = true), 4500);
 }
 
+const QUIET_NOTICES = new Set(["idle_prompt", "permission_prompt", "elicitation_dialog"]);
+
 const STATE_LABEL = { starting: "Starting", idle: "Ready", busy: "Working", waiting: "Needs you", exited: "Exited" };
 
 // ---- app state ----------------------------------------------------------------
@@ -117,6 +119,7 @@ async function submitNew(ev) {
   const body = Object.fromEntries(form.entries());
   body.trustWorkspace = form.has("trustWorkspace");
   body.search = form.has("search");
+  body.screenReader = form.has("screenReader");
   store.set("provider", body.provider);
   store.set("cwd", body.cwd);
   const btn = $("#f-start");
@@ -282,7 +285,10 @@ function handleEvent(ev) {
       break;
     }
     case "notice":
-      if (ev.kind !== "idle_prompt") append(el("div", { class: "notice", text: ev.text }));
+      // Claude's own attention notifications duplicate what this page already
+      // shows: a request card (permission_prompt, elicitation_dialog) or the
+      // Ready state (idle_prompt).
+      if (!QUIET_NOTICES.has(ev.kind)) append(el("div", { class: "notice", text: ev.text }));
       break;
     case "restarted":
       append(el("div", { class: "notice", text: "CLI relaunched with the new settings" }));
@@ -290,6 +296,11 @@ function handleEvent(ev) {
       break;
     case "error":
       append(el("div", { class: "notice error", text: ev.text }));
+      break;
+    case "diagnostic":
+      append(el("details", { class: "tool error" },
+        el("summary", {}, el("b", { text: "recognizer drift" }), el("span", { text: ev.text })),
+        el("div", {}, el("pre", { text: ev.screen || "" }))));
       break;
     case "exited":
       append(el("div", { class: "notice error", text: `Session ended: ${ev.text}` }));

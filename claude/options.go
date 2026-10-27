@@ -81,6 +81,19 @@ type Options struct {
 	Chrome *bool
 
 	Interaction Interaction
+
+	// ScreenReader runs the CLI with --ax-screen-reader and reads its flat,
+	// instruction-labelled output instead of the classic layout. The
+	// terminal shows that plainer rendering too.
+	ScreenReader bool
+
+	// Bridge controls the in-process bridge mod (prompt submission and
+	// interrupts without keystrokes). Default BridgeAuto.
+	Bridge Bridge
+
+	// DriftDir, when set, receives a fixture (screen .ansi/.txt plus .json
+	// context) whenever a recognizer disagrees with the CLI's own state.
+	DriftDir string
 	// HookHoldTimeout bounds how long InteractionHook holds a request.
 	// After it, the request falls back to the TUI dialog (same request id).
 	// Default 9m; Claude caps hook timeouts at 10m.
@@ -127,6 +140,7 @@ type launch struct {
 	effort    string
 	mode      string
 	extraArgs []string
+	pluginDir string // the bridge mod, when loaded
 }
 
 // args builds the CLI arguments.
@@ -195,6 +209,12 @@ func (o *Options) args(l launch, settingsJSON string) ([]string, error) {
 	}
 	if o.AllowDangerouslySkipPermissions {
 		a = append(a, "--allow-dangerously-skip-permissions")
+	}
+	if o.ScreenReader {
+		a = append(a, screenReaderProfile{}.args()...)
+	}
+	if l.pluginDir != "" {
+		a = append(a, "--plugin-dir", l.pluginDir)
 	}
 	for _, x := range l.extraArgs {
 		if x == "-p" || x == "--print" || strings.HasPrefix(x, "--print=") {

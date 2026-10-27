@@ -31,6 +31,7 @@ func TestParseRecords(t *testing.T) {
 		{`{"type":"user","message":{"role":"user","content":"<command-name>/effort</command-name>\n<command-message>effort</command-message>\n<command-args>low</command-args>"}}`,
 			[]bridge.EventType{bridge.EventUserMessage}},
 		{`{"type":"attachment","attachment":{}}`, nil},
+		{`{"type":"assistant","message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`, nil},
 	}
 	for _, c := range cases {
 		p := parseRecord([]byte(c.line))
